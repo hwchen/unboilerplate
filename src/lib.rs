@@ -12,81 +12,85 @@
 // - tweak?
 #![feature(universal_impl_trait)]
 
+#[macro_use]
 extern crate failure;
+extern crate kuchiki;
 
-struct TextBlock<'a> {
-    text: &'a str,
+use failure::Error;
+use kuchiki::traits::*;
+use std::ops::Deref;
+use std::str::FromStr;
+
+// TODO needs to hold a reference to the node,
+// to be able to compare to adjacent sibling nodes
+// for nested anchor
+#[derive(Debug, PartialEq)]
+struct TextBlock {
+    tag: Tag,
+    text: String,
     word_count: usize,
-}
-
-impl<'a> TextBlock<'a> {
-
-    fn new(text: &'a str, is_boilerplate: bool) -> Self {
-        TextBlock {
-            text: text,
-            is_boilerplate: is_boilerplate,
-        }
-    }
+    link_density: f32,
 }
 
 /// public entrypoint.
-/// Input html document, get back content with outer tags removed.
-/// Tags internal to text are not removed.
-/// What about nested div tags? Do we just look at the block from the
-/// outermost div tag?
-pub fn unboilerplate(document: &str) -> String {
-    analyze_boilerplate(document)
-        .iter()
-        .filter(|text_block| !text_block.is_boilerplate())
-        .map(|text_block| text_block.text())
-        .collect()
+/// Input html document, get back non-boilerplate content with no tags.
+///
+/// Text blocks are any text that is separate by tags from other text.
+///
+/// Anchors are the only tag not considered a separator.
+/// I'll check the siblings of an anchor; if it's equal to the text
+/// node on either side, then concatenate.
+///
+/// I should do this in a third pass
+///
+/// - pass 1: parse and build html tree
+/// - pass 2: naive scan of all text blocks
+/// - pass 3: concatenate anchor-separated blocks and compute link density
+pub fn unboilerplate(document: &str) -> Result<String, Error> {
+    let text_blocks = naive_blocks(document);
+
+    // Apply algorithm here
+    
+    Ok("".to_owned())
 }
+
 
 /// Produces text block with features (in this case, just word count)
-fn scan_boilerplate<'b>(document: &'b str) -> Vec<TextBlock<'b>> {
-    let mut input = document.char_indices();
+fn naive_blocks(document: &str) -> Result<Vec<TextBlock>, Error> {
+    let mut res = vec![];
 
-    let mut chunks = Vec::new();
+    let document = kuchiki::parse_html().one(document);
 
-    loop {
-        match input.next() {
-            Some((_, '<')) => {
-                match get_block(&mut input) {
-                    Some(chunk) => chunks.push(chunk),
-                    None => continue,
-                }
-            }
-            Some(_) => continue,
-            None => break,
-        };
+    // TODO filter for h, p, a, div
+    for text_element in document.descendants().text_nodes() {
+        let tag = text_element.as_node()
+            .parent().unwrap()
+            .as_element().cloned().unwrap() // TODO use `?`
+            .clone()
+            .name.local.to_string();
+
+        println!("<{}>: {}", tag, text_element.as_node().to_string());
+
+        let text = text_element.as_node().to_string();
+        let word_count = count_words(&text);
+        let link_density = 0.;
+
+        res.push(TextBlock{
+            tag: tag.parse()?,
+            text: text,
+            word_count: word_count,
+            link_density: link_density,
+        })
     }
-    vec![]
+
+    Ok(res)
 }
 
-const HEADER_NUMS: [char; 6] = ['1', '2', '3', '4', '5', '6'];
-
-fn get_block(input: impl Iterator<Item=(usize,char)>) -> Option<Chunk> {
-    // first check tag
-    // Angle brackets always indicate tag
-    match input.next() {
-        Some(_, c) if c == 'h' or c == 'H' => {
-            match input.next() {
-                Some(_, c) if HEADER_NUMS.contains(c) => {
-                    
-                },
-                _ => return None,
-            }
-        },
-        Some(_, c) if c == 'p' or c == 'P' => {
-        },
-        Some(_, c) if c == 'd' or c == 'D' => {
-        },
-        None => return None,
-    }
-    None
+fn count_words(text_block: &str) -> usize {
+    text_block.split_whitespace().count()
 }
 
-// All the tags that we are checking for.
+#[derive(Debug, PartialEq)]
 enum Tag {
     H1,
     H2,
@@ -96,22 +100,37 @@ enum Tag {
     H6,
     P,
     DIV,
-//    A,
+    A,
 }
 
-fn count_words(text_block: &str) -> usize {
-    text_block.split_whitespace().count()
+impl FromStr for Tag {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "h1" => Ok(Tag::H1),
+            "h2" => Ok(Tag::H2),
+            "h3" => Ok(Tag::H3),
+            "h4" => Ok(Tag::H4),
+            "h5" => Ok(Tag::H5),
+            "h6" => Ok(Tag::H6),
+            "p" => Ok(Tag::P),
+            "div" => Ok(Tag::DIV),
+            "a" => Ok(Tag::A),
+            _ => Err(format_err!("Tag {:?} is not in allowed set", s)),
+        }
+    }
 }
-
-
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn it_works() {
-        let t1 = "<body><p>adsf adsf asdf</p></body>";
-        let t2 = "<body> < <p>adsf adsf asdf</p></body>";
+        let t1 = "<body><p>adsf adsf <a href=\"url\">asdf</a>end</p></body>";
 
-        assert_eq!(2 + 2, 4);
+        println!("text blocks: {:#?}", scan_boilerplate(t1));
+        panic!();
     }
 }
