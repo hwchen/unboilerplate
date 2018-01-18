@@ -1,7 +1,8 @@
 [package]
-name = "unboilerplate"
-version = "0.1.0"
 authors = ["Walther Chen <walther.chen@gmail.com>"]
 license = "MIT OR Apache-2.0"
+name = "unboilerplate"
+version = "0.1.0"
 
 [dependencies]
+failure = "0.1.1"
