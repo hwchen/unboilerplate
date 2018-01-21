@@ -16,20 +16,40 @@
 extern crate failure;
 extern crate kuchiki;
 
-use failure::Error;
+use failure::{Error};
 use kuchiki::traits::*;
-use std::ops::Deref;
+use kuchiki::{NodeRef, NodeDataRef};
+use std::cell::RefCell;
 use std::str::FromStr;
 
 // TODO needs to hold a reference to the node,
 // to be able to compare to adjacent sibling nodes
 // for nested anchor
 #[derive(Debug, PartialEq)]
-struct TextBlock {
-    tag: Tag,
-    text: String,
-    word_count: usize,
-    link_density: f32,
+struct Block {
+    pub tag: BlockTag,
+    pub text: String,
+    pub word_count: usize,
+    pub anchor_word_count: usize,
+}
+
+impl Block {
+    pub fn new(tag: BlockTag, text: String) -> Self {
+        let word_count = count_words(&text);
+
+        let anchor_word_count = if tag == BlockTag::A {
+            word_count
+        } else {
+            0
+        };
+
+        Block {
+            tag: tag,
+            text: text,
+            word_count: word_count,
+            anchor_word_count: anchor_word_count,
+        }
+    }
 }
 
 /// public entrypoint.
@@ -41,57 +61,147 @@ struct TextBlock {
 /// I'll check the siblings of an anchor; if it's equal to the text
 /// node on either side, then concatenate.
 ///
-/// I should do this in a third pass
-///
 /// - pass 1: parse and build html tree
-/// - pass 2: naive scan of all text blocks
-/// - pass 3: concatenate anchor-separated blocks and compute link density
+/// - pass 2: naive scan of all text blocks and concatenate anchor blocks
+/// - pass 3: compute link density
 pub fn unboilerplate(document: &str) -> Result<String, Error> {
-    let text_blocks = naive_blocks(document);
+    // pass 1 and 2: parse to html tree, naive scan
+    // of all text blocks
+    let blocks = scan(document)?;
 
     // Apply algorithm here
-    
-    Ok("".to_owned())
+
+    Ok(blocks.iter()
+        .map(|block| block.text.clone())
+        .collect()
+    )
 }
 
 
 /// Produces text block with features (in this case, just word count)
-fn naive_blocks(document: &str) -> Result<Vec<TextBlock>, Error> {
-    let mut res = vec![];
+fn scan(document: &str) -> Result<Vec<Block>, Error> {
+    let mut blocks = vec![];
 
     let document = kuchiki::parse_html().one(document);
 
-    // TODO filter for h, p, a, div
-    for text_element in document.descendants().text_nodes() {
-        let tag = text_element.as_node()
-            .parent().unwrap()
-            .as_element().cloned().unwrap() // TODO use `?`
-            .clone()
-            .name.local.to_string();
+    let mut text_nodes = document.descendants().text_nodes();
 
-        println!("<{}>: {}", tag, text_element.as_node().to_string());
+    loop {
+        if let Some(text_node) = text_nodes.next() {
+            // This filters for text block separating tags only
+            let tag = match text_block_tag(&text_node) {
+                Ok(t) => t,
+                Err(_) => { continue; },
+            };
 
-        let text = text_element.as_node().to_string();
-        let word_count = count_words(&text);
-        let link_density = 0.;
-
-        res.push(TextBlock{
-            tag: tag.parse()?,
-            text: text,
-            word_count: word_count,
-            link_density: link_density,
-        })
+            if tag == BlockTag::A {
+                concat_or_push_anchor(text_node, &mut text_nodes, &mut blocks)?;
+            } else {
+                push_block(tag, text_node, &mut blocks);
+            }
+        } else {
+            // reach the end of text_nodes
+            break;
+        }
     }
 
-    Ok(res)
+    Ok(blocks)
+}
+
+/// Gets parent tag from text node
+/// Fails if can't parse into tag that
+/// is used for separating chunk separation
+fn text_block_tag(text_node: &NodeDataRef<RefCell<String>>) -> Result<BlockTag, Error> {
+    try_parent_blocktag(text_node.as_node())
+}
+
+/// Tries to get parent node's tag,
+/// succeeds only if the tag is a BlockTag
+fn try_parent_blocktag(node: &NodeRef) -> Result<BlockTag, Error> {
+    node
+        .parent()
+        .ok_or(format_err!("{:?} has no parent", node.to_string()))?
+        .as_element()
+        .ok_or(format_err!("{:?} parent not an element", node.to_string()))?
+        .name.local.to_string()
+        .parse()
+}
+
+fn push_block(
+    tag: BlockTag,
+    text_node: NodeDataRef<RefCell<String>>,
+    blocks: &mut Vec<Block>,
+    )
+{
+    let text = text_node.as_node().to_string();
+
+    blocks.push(Block::new(tag, text));
+}
+
+/// If an anchor text is surrounded by text nodes, then
+/// concatenate with the surrounding text
+/// but if following is not text, just append anchor.
+fn concat_or_push_anchor(
+    text_node: NodeDataRef<RefCell<String>>,
+    text_nodes: &mut impl Iterator<Item=NodeDataRef<RefCell<String>>>,
+    blocks: &mut Vec<Block>,
+    ) -> Result<(), Error>
+{
+    let a_node = text_node.as_node()
+        .parent()
+        .expect("Anchor node parent must already exist");
+
+    // First check if parent of anchor node is text block
+    // If not, then return an error that anchor is not
+    // in a text block, and therefore cannot be pushed
+    // TODO understand with_context better
+    // TODO write tests for case where anchor node is nested
+    // inside non-text block with text
+
+    let text = text_node.as_node().to_string();
+    let mut anchor_block = Block::new(BlockTag::A, text);
+
+    // Then check if there's text to concatenate to on either side
+    // first concatenate next text into anchor, then
+    // anchor into previous. This will use the fewest allocations
+    // and movement?
+    // (algo designed for doing following node first, if changing
+    // make sure to take order into consideration.
+
+    if let Some(following_node) = a_node.following_siblings().next() {
+        if following_node.as_text().is_some() {
+            if let Some(following_node) = text_nodes.next() {
+                let text = following_node.as_node().to_string();
+                anchor_block.text.push_str(&text);
+                anchor_block.word_count += count_words(&text);
+                // the following node anchor word count must be 0
+            }
+        }
+    }
+
+    if let Some(previous_node) = a_node.preceding_siblings().next() {
+        if previous_node.as_text().is_some() {
+            if let Some(previous_block) = blocks.last_mut() {
+                previous_block.text.push_str(&anchor_block.text);
+                previous_block.word_count += anchor_block.word_count;
+                previous_block.anchor_word_count += anchor_block.anchor_word_count;
+            }
+        }
+    } else {
+        blocks.push(anchor_block);
+    }
+
+    Ok(())
 }
 
 fn count_words(text_block: &str) -> usize {
     text_block.split_whitespace().count()
 }
 
+/// Tags used to delinieate the text blocks
+/// used for analysis
 #[derive(Debug, PartialEq)]
-enum Tag {
+enum BlockTag {
     H1,
     H2,
     H3,
@@ -103,34 +213,53 @@ enum Tag {
     A,
 }
 
-impl FromStr for Tag {
+impl FromStr for BlockTag {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "h1" => Ok(Tag::H1),
-            "h2" => Ok(Tag::H2),
-            "h3" => Ok(Tag::H3),
-            "h4" => Ok(Tag::H4),
-            "h5" => Ok(Tag::H5),
-            "h6" => Ok(Tag::H6),
-            "p" => Ok(Tag::P),
-            "div" => Ok(Tag::DIV),
-            "a" => Ok(Tag::A),
-            _ => Err(format_err!("Tag {:?} is not in allowed set", s)),
+            "h1" => Ok(BlockTag::H1),
+            "h2" => Ok(BlockTag::H2),
+            "h3" => Ok(BlockTag::H3),
+            "h4" => Ok(BlockTag::H4),
+            "h5" => Ok(BlockTag::H5),
+            "h6" => Ok(BlockTag::H6),
+            "p" => Ok(BlockTag::P),
+            "div" => Ok(BlockTag::DIV),
+            "a" => Ok(BlockTag::A),
+            _ => Err(format_err!("Tag {:?} is not a text block tag", s)),
         }
     }
 }
+
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn it_works() {
-        let t1 = "<body><p>adsf adsf <a href=\"url\">asdf</a>end</p></body>";
+    fn test_scan() {
+        let t1 = "\n<body><p>one <a href=\"url\">two</a> three</p></body>\n";
+        let t2 = "\n<body><p>one <a href=\"url\">two</a></p><p>three</p></body>\n";
+        let t3 = "\n<body><p>one</p><p><a href=\"url\">two</a> three</p></body>\n";
 
-        println!("text blocks: {:#?}", scan_boilerplate(t1));
+        println!("{}", t1);
+        println!("text blocks: {:#?}", scan(t1));
+        println!("{}", t2);
+        println!("text blocks: {:#?}", scan(t2));
+        println!("{}", t3);
+        println!("text blocks: {:#?}", scan(t3));
+        panic!();
+    }
+
+    #[test]
+    #[ignore]
+    fn test_unboilerplate() {
+        let t1 = "\n<body><p>adsf adsf <a href=\"url\">asdf</a> end</p>
+        <div>horseshoes are round</div></body>\n";
+
+        println!("{}", t1);
+        println!("text blocks: {:#?}", unboilerplate(t1));
         panic!();
     }
 }
