@@ -7,10 +7,10 @@ use std::str::FromStr;
 
 #[derive(Debug, PartialEq)]
 pub struct Block {
-    pub tag: BlockTag,
-    pub text: String,
-    pub word_count: usize,
-    pub anchor_word_count: usize,
+    tag: BlockTag,
+    text: String,
+    word_count: usize,
+    anchor_word_count: usize,
 }
 
 impl Block {
@@ -29,6 +29,18 @@ impl Block {
             word_count: word_count,
             anchor_word_count: anchor_word_count,
         }
+    }
+
+    pub fn tag(&self) -> &BlockTag {
+        &self.tag
+    }
+
+    pub fn as_text(&self) -> &str {
+        self.text.as_str()
+    }
+
+    pub fn link_density(&self) -> f32 {
+        self.anchor_word_count as f32 / self.word_count as f32
     }
 }
 

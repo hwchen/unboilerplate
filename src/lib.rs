@@ -42,11 +42,10 @@ pub fn unboilerplate(document: &str) -> Result<String, Error> {
     // Apply algorithm here
 
     Ok(blocks.iter()
-        .map(|block| block.text.clone())
+        .map(|block| block.as_text())
         .collect()
     )
 }
-
 
 #[cfg(test)]
 mod tests {
