@@ -238,18 +238,71 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_scan() {
+    fn test_scan_concatenate() {
         let t1 = "\n<body><p>one <a href=\"url\">two</a> three</p></body>\n";
         let t2 = "\n<body><p>one <a href=\"url\">two</a></p><p>three</p></body>\n";
         let t3 = "\n<body><p>one</p><p><a href=\"url\">two</a> three</p></body>\n";
+        let t4 = "\n<body><p><a href=\"url\">two</a></p></body>\n";
 
-        println!("{}", t1);
-        println!("text blocks: {:#?}", scan(t1));
-        println!("{}", t2);
-        println!("text blocks: {:#?}", scan(t2));
-        println!("{}", t3);
-        println!("text blocks: {:#?}", scan(t3));
-        panic!();
+        assert_eq!(
+            vec![
+                Block {
+                        tag: BlockTag::P,
+                        text: "one two three".to_owned(),
+                        word_count: 3,
+                        anchor_word_count: 1
+                    }
+            ],
+            scan(t1).unwrap()
+        );
+
+        assert_eq!(
+            vec![
+                Block {
+                    tag: BlockTag::P,
+                    text: "one two".to_owned(),
+                    word_count: 2,
+                    anchor_word_count: 1
+                },
+                Block {
+                    tag: BlockTag::P,
+                    text: "three".to_owned(),
+                    word_count: 1,
+                    anchor_word_count: 0
+                }
+            ],
+            scan(t2).unwrap()
+        );
+
+        assert_eq!(
+            vec![
+                Block {
+                    tag: BlockTag::P,
+                    text: "one".to_owned(),
+                    word_count: 1,
+                    anchor_word_count: 0
+                },
+                Block {
+                    tag: BlockTag::A,
+                    text: "two three".to_owned(),
+                    word_count: 2,
+                    anchor_word_count: 1
+                }
+            ],
+            scan(t3).unwrap()
+        );
+
+        assert_eq!(
+            vec![
+                Block {
+                    tag: BlockTag::A,
+                    text: "two".to_owned(),
+                    word_count: 1,
+                    anchor_word_count: 1
+                }
+            ],
+            scan(t4).unwrap()
+        );
     }
 
     #[test]
