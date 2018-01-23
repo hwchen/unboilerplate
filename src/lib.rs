@@ -16,7 +16,10 @@
 extern crate failure;
 extern crate kuchiki;
 
+mod algorithm;
+mod block;
 mod scan;
+mod util;
 
 use failure::Error;
 
@@ -34,6 +37,11 @@ use scan::scan;
 /// - pass 1: parse and build html tree
 /// - pass 2: naive scan of all text blocks and concatenate anchor blocks
 /// - pass 3: compute link density
+///
+/// For the algorithm selection, should I use enums and match, or
+/// Algorithm trait?
+///
+/// TODO how do I make Block not a public interface?
 pub fn unboilerplate(document: &str) -> Result<String, Error> {
     // pass 1 and 2: parse to html tree, naive scan
     // of all text blocks
@@ -41,11 +49,9 @@ pub fn unboilerplate(document: &str) -> Result<String, Error> {
 
     // Apply algorithm here
 
-    Ok(blocks.iter()
-        .map(|block| block.as_text())
-        .collect()
-    )
+    Ok(algorithm::all(blocks))
 }
+
 
 #[cfg(test)]
 mod tests {

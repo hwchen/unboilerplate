@@ -3,46 +3,9 @@ use kuchiki;
 use kuchiki::traits::*;
 use kuchiki::{NodeRef, NodeDataRef};
 use std::cell::RefCell;
-use std::str::FromStr;
 
-#[derive(Debug, PartialEq)]
-pub struct Block {
-    tag: BlockTag,
-    text: String,
-    word_count: usize,
-    anchor_word_count: usize,
-}
-
-impl Block {
-    pub fn new(tag: BlockTag, text: String) -> Self {
-        let word_count = count_words(&text);
-
-        let anchor_word_count = if tag == BlockTag::A {
-            word_count
-        } else {
-            0
-        };
-
-        Block {
-            tag: tag,
-            text: text,
-            word_count: word_count,
-            anchor_word_count: anchor_word_count,
-        }
-    }
-
-    pub fn tag(&self) -> &BlockTag {
-        &self.tag
-    }
-
-    pub fn as_text(&self) -> &str {
-        self.text.as_str()
-    }
-
-    pub fn link_density(&self) -> f32 {
-        self.anchor_word_count as f32 / self.word_count as f32
-    }
-}
+use ::block::{Block, BlockTag};
+use ::util::count_words;
 
 /// Produces text block with features (in this case, just word count)
 pub fn scan(document: &str) -> Result<Vec<Block>, Error> {
@@ -159,45 +122,6 @@ fn concat_or_push_anchor(
 
     Ok(())
 }
-
-fn count_words(text_block: &str) -> usize {
-    text_block.split_whitespace().count()
-}
-
-/// Tags used to delinieate the text blocks
-/// used for analysis
-#[derive(Debug, PartialEq)]
-pub enum BlockTag {
-    H1,
-    H2,
-    H3,
-    H4,
-    H5,
-    H6,
-    P,
-    DIV,
-    A,
-}
-
-impl FromStr for BlockTag {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "h1" => Ok(BlockTag::H1),
-            "h2" => Ok(BlockTag::H2),
-            "h3" => Ok(BlockTag::H3),
-            "h4" => Ok(BlockTag::H4),
-            "h5" => Ok(BlockTag::H5),
-            "h6" => Ok(BlockTag::H6),
-            "p" => Ok(BlockTag::P),
-            "div" => Ok(BlockTag::DIV),
-            "a" => Ok(BlockTag::A),
-            _ => Err(format_err!("Tag {:?} is not a text block tag", s)),
-        }
-    }
-}
-
 
 #[cfg(test)]
 mod tests {
