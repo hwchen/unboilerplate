@@ -1,3 +1,6 @@
 mod all;
 pub use self::all::all;
-//pub mod num_words;
+
+mod num_words;
+pub use self::num_words::num_words;
+

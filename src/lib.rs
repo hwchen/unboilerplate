@@ -49,7 +49,8 @@ pub fn unboilerplate(document: &str) -> Result<String, Error> {
 
     // Apply algorithm here
 
-    Ok(algorithm::all(blocks))
+    //Ok(algorithm::all(blocks))
+    Ok(algorithm::num_words(blocks))
 }
 
 
